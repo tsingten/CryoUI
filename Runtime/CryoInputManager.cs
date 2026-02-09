@@ -39,6 +39,9 @@ namespace Cryo
             }
 
             _blockInput = CryoContext.Current?.WantCaptureMouse ?? false;
+
+            // 添加对滚轮输入的支持
+            CryoContext.Current.ScrollDelta = Input.mouseScrollDelta.y;
         }
 
         // 安全的输入方法

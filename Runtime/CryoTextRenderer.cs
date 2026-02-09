@@ -17,6 +17,10 @@ namespace Cryo
         private readonly List<Color32> _colors = new List<Color32>();
         private readonly List<Vector2> _uvs = new List<Vector2>();
 
+        // ★ 裁剪区域支持
+        private readonly Stack<Rect> _clipRectStack = new Stack<Rect>();
+        private Rect? _currentClipRect;
+
         public Mesh TextMesh { get; private set; }
         public Material FontMaterial => _fontMaterial;
         public TMP_FontAsset FontAsset => _fontAsset;
@@ -54,12 +58,28 @@ namespace Cryo
 
         public void SetFontSize(float size) => _fontSize = size;
 
+        // ★ 裁剪区域方法
+        public void PushClipRect(Rect rect)
+        {
+            _clipRectStack.Push(rect);
+            _currentClipRect = rect;
+        }
+
+        public void PopClipRect()
+        {
+            if (_clipRectStack.Count > 0)
+                _clipRectStack.Pop();
+            _currentClipRect = _clipRectStack.Count > 0 ? _clipRectStack.Peek() : null;
+        }
+
         public void Clear()
         {
             _vertices.Clear();
             _indices.Clear();
             _colors.Clear();
             _uvs.Clear();
+            _clipRectStack.Clear();
+            _currentClipRect = null;
         }
 
         private bool TryGetCharacter(uint unicode, out TMP_Character character, out TMP_FontAsset sourceFont)
@@ -150,17 +170,34 @@ namespace Cryo
                 float charRight = charLeft + Mathf.Ceil(metrics.width * fontScale);
                 float charBottom = charTop + Mathf.Ceil(metrics.height * fontScale);
 
+                // ★ 检查是否在裁剪区域内
+                if (_currentClipRect.HasValue)
+                {
+                    Rect charRect = new Rect(charLeft, Screen.height - charBottom, charRight - charLeft, charBottom - charTop);
+                    Rect clipRect = _currentClipRect.Value;
+                    // 转换为屏幕坐标系进行比较
+                    Rect clipScreenRect = new Rect(clipRect.x, Screen.height - clipRect.yMax, clipRect.width, clipRect.height);
+
+                    if (!charRect.Overlaps(clipScreenRect))
+                    {
+                        cursorX += metrics.horizontalAdvance * fontScale;
+                        continue;
+                    }
+                }
+
                 float unityTop = Screen.height - charTop;
                 float unityBottom = Screen.height - charBottom;
 
                 float atlasWidth = sourceFont.atlasWidth;
                 float atlasHeight = sourceFont.atlasHeight;
 
-                // SDF纹理不需要半像素偏移，直接使用精确UV
-                float u0 = glyphRect.x / atlasWidth;
-                float u1 = (glyphRect.x + glyphRect.width) / atlasWidth;
-                float v0 = glyphRect.y / atlasHeight;
-                float v1 = (glyphRect.y + glyphRect.height) / atlasHeight;
+                float halfPixelU = 0.5f / atlasWidth;
+                float halfPixelV = 0.5f / atlasHeight;
+
+                float u0 = glyphRect.x / atlasWidth + halfPixelU;
+                float u1 = (glyphRect.x + glyphRect.width) / atlasWidth - halfPixelU;
+                float v0 = glyphRect.y / atlasHeight + halfPixelV;
+                float v1 = (glyphRect.y + glyphRect.height) / atlasHeight - halfPixelV;
 
                 int vertexOffset = _vertices.Count;
 
@@ -255,7 +292,7 @@ namespace Cryo
             {
                 // 调整SDF边缘锐度 (值越大越锐利，通常0.4-0.6)
                 _fontMaterial.SetFloat("_OutlineSoftness", Mathf.Clamp01(1f - sharpness));
-                
+
                 // 如果材质支持，调整面部膨胀
                 if (_fontMaterial.HasProperty("_FaceDilate"))
                 {

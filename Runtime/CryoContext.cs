@@ -20,7 +20,7 @@ namespace Cryo
         public bool MouseClicked { get; set; }
         public bool MouseReleased { get; set; }
         public Vector2 MouseDelta { get; set; }
-
+        public float ScrollDelta { get; set; }
         // ★ 键盘输入
         public string InputText { get; set; } = "";
         public bool HasKeyboardInput { get; set; }
@@ -145,5 +145,11 @@ namespace Cryo
         public bool IsOpen = true;
         public Vector2 ContentStart;
         public float TitleBarHeight = 26f;
+
+        // 滚动支持
+        public Vector2 ScrollOffset;
+        public float ContentHeight;
+        public float MaxScrollY => Mathf.Max(0, ContentHeight - (Rect.height - TitleBarHeight - 20));
+        public bool HasVerticalScroll => ContentHeight > Rect.height - TitleBarHeight - 20;
     }
 }

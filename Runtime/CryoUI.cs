@@ -37,8 +37,17 @@ namespace Cryo
 
             Rect windowRect = state.Rect;
             Rect titleBarRect = new Rect(windowRect.x, windowRect.y, windowRect.width, state.TitleBarHeight);
+            Rect contentRect = new Rect(windowRect.x, windowRect.y + state.TitleBarHeight,
+                                         windowRect.width, windowRect.height - state.TitleBarHeight);
 
             ctx.RegisterInteractiveRect(windowRect);
+
+            // ★ 处理滚动输入
+            if (contentRect.Contains(ctx.MousePosition) && ctx.ScrollDelta != 0)
+            {
+                state.ScrollOffset.y -= ctx.ScrollDelta * 30f;
+                state.ScrollOffset.y = Mathf.Clamp(state.ScrollOffset.y, 0, state.MaxScrollY);
+            }
 
             // ★ 绘制到背景层
             var drawList = ctx.DrawListBackground;
@@ -72,9 +81,14 @@ namespace Cryo
             if (closeHovered && ctx.MouseClicked)
                 isOpen = false;
 
-            state.ContentStart = new Vector2(windowRect.x + 10, windowRect.y + state.TitleBarHeight + 10);
+            // ★ 设置内容起始位置（考虑滚动偏移）
+            state.ContentStart = new Vector2(windowRect.x + 10, windowRect.y + state.TitleBarHeight + 10 - state.ScrollOffset.y);
             ctx.CursorPosition = state.ContentStart;
             ctx.StartX = state.ContentStart.x;
+
+            // ★ 设置裁剪区域
+            ctx.DrawListForeground.PushClipRect(contentRect);
+            ctx.TextRenderer.PushClipRect(contentRect);
 
             ctx.PushWindow(state);
             state.IsOpen = isOpen;
@@ -87,10 +101,78 @@ namespace Cryo
             CheckCloseMenuOnClickOutside();
 
             var ctx = CryoContext.Current;
+            var state = ctx.CurrentWindow;
+
+            // ★ 记录内容高度
+            if (state != null)
+            {
+                float contentBottom = ctx.CursorPosition.y + state.ScrollOffset.y;
+                state.ContentHeight = contentBottom - (state.Rect.y + state.TitleBarHeight);
+
+                // ★ 绘制滚动条
+                if (state.HasVerticalScroll)
+                {
+                    DrawScrollbar(state);
+                }
+
+                // ★ 弹出裁剪区域
+                ctx.DrawListForeground.PopClipRect();
+                ctx.TextRenderer.PopClipRect();
+            }
+
             ctx.PopWindow();
             ctx.PopId();
             ctx.StartX = 10f;
-            ctx.CursorPosition = new Vector2(10, ctx.CursorPosition.y + 10);
+            ctx.CursorPosition = new Vector2(10, ctx.CursorPosition.y + state.ScrollOffset.y + 10);
+        }
+
+        private static void DrawScrollbar(WindowState state)
+        {
+            var ctx = CryoContext.Current;
+            float scrollbarWidth = 8f;
+            float contentAreaHeight = state.Rect.height - state.TitleBarHeight;
+
+            Rect scrollbarTrack = new Rect(
+                state.Rect.xMax - scrollbarWidth - 2,
+                state.Rect.y + state.TitleBarHeight + 2,
+                scrollbarWidth,
+                contentAreaHeight - 4
+            );
+
+            // 计算滑块大小和位置
+            float visibleRatio = contentAreaHeight / state.ContentHeight;
+            float thumbHeight = Mathf.Max(scrollbarTrack.height * visibleRatio, 20f);
+            float scrollRatio = state.ScrollOffset.y / state.MaxScrollY;
+            float thumbY = scrollbarTrack.y + scrollRatio * (scrollbarTrack.height - thumbHeight);
+
+            Rect scrollbarThumb = new Rect(scrollbarTrack.x, thumbY, scrollbarWidth, thumbHeight);
+
+            // 绘制轨道
+            ctx.DrawListForeground.AddRectFilled(scrollbarTrack, new Color32(40, 50, 60, 100), new Color32(40, 50, 60, 100));
+
+            // 绘制滑块
+            bool thumbHovered = scrollbarThumb.Contains(ctx.MousePosition);
+            Color32 thumbColor = thumbHovered ? new Color32(100, 150, 200, 200) : new Color32(80, 120, 160, 150);
+            ctx.DrawListForeground.AddRectFilled(scrollbarThumb, thumbColor, thumbColor);
+
+            // ★ 滑块拖拽
+            int scrollbarId = ctx.GetId("__scrollbar__");
+            if (thumbHovered && ctx.MouseClicked)
+                ctx.ActiveId = scrollbarId;
+
+            if (ctx.ActiveId == scrollbarId)
+            {
+                if (ctx.MouseDown)
+                {
+                    float newThumbY = ctx.MousePosition.y - thumbHeight * 0.5f;
+                    float newScrollRatio = (newThumbY - scrollbarTrack.y) / (scrollbarTrack.height - thumbHeight);
+                    state.ScrollOffset.y = Mathf.Clamp(newScrollRatio * state.MaxScrollY, 0, state.MaxScrollY);
+                }
+                else
+                {
+                    ctx.ActiveId = 0;
+                }
+            }
         }
 
         private static void HandleWindowDrag(int id, WindowState state)
