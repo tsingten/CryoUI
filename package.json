@@ -1,0 +1,17 @@
+{
+  "name": "com.tsingten.cryoui",
+  "version": "1.0.0",
+  "displayName": "CryoUI",
+  "description": "A Dear ImGui-style UI library for Unity 6 and modern Render Pipelines.",
+  "unity": "6000.0",
+  "author": {
+    "name": "Tsingten Yue",
+    "url": "https://github.com/tsingten"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsingten/CryoUI.git"
+  },
+  "keywords": ["ui", "imgui", "immediate-mode", "Unity", "URP", "URDP"],
+  "license": "MIT"
+}

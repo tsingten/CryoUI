@@ -1,0 +1,9 @@
+{
+  "name": "CryoUI.Runtime",
+  "rootNamespace": "CryoUI",
+  "references": [],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false
+}
