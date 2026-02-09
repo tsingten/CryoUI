@@ -22,6 +22,8 @@ namespace Cryo
             _indices.Clear();
             _colors.Clear();
             _uvs.Clear();
+            _clipRectStack.Clear();      // ★ 清除裁剪栈
+            _currentClipRect = null;     // ★ 重置当前裁剪区域
         }
 
         public void AddRect(Rect rect, Color32 color)

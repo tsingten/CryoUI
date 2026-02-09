@@ -21,6 +21,7 @@ namespace Cryo
         public bool MouseReleased { get; set; }
         public Vector2 MouseDelta { get; set; }
         public float ScrollDelta { get; set; }
+
         // ★ 键盘输入
         public string InputText { get; set; } = "";
         public bool HasKeyboardInput { get; set; }
@@ -46,6 +47,7 @@ namespace Cryo
         // 窗口系统
         private readonly Stack<WindowState> _windowStack = new Stack<WindowState>();
         private readonly Dictionary<int, WindowState> _windowStates = new Dictionary<int, WindowState>();
+        private readonly List<int> _windowOrder = new List<int>();  // ★ 窗口绘制顺序
         public WindowState CurrentWindow => _windowStack.Count > 0 ? _windowStack.Peek() : null;
 
         // 输入遮挡
@@ -128,6 +130,24 @@ namespace Cryo
             return state;
         }
 
+        // ★ 窗口 Z-order 管理
+        public void BringWindowToFront(int id)
+        {
+            _windowOrder.Remove(id);
+            _windowOrder.Add(id);
+        }
+
+        public int GetWindowZOrder(int id)
+        {
+            int index = _windowOrder.IndexOf(id);
+            return index >= 0 ? index : 0;
+        }
+
+        public bool IsWindowTopMost(int id)
+        {
+            return _windowOrder.Count > 0 && _windowOrder[_windowOrder.Count - 1] == id;
+        }
+
         public void PushWindow(WindowState window) => _windowStack.Push(window);
         public void PopWindow() => _windowStack.Pop();
 
@@ -149,9 +169,11 @@ namespace Cryo
         // 滚动支持
         public Vector2 ScrollOffset;
         public float ContentHeight;
-        public float MenuBarHeight;  // ★ 菜单栏高度（不参与滚动）
-        public float ScrollableTop => Rect.y + TitleBarHeight + MenuBarHeight;  // ★ 可滚动区域顶部
-        public float ScrollableHeight => Rect.height - TitleBarHeight - MenuBarHeight - 10;  // ★ 可滚动区域高度
+        public float MenuBarHeight;
+        public bool ScrollAreaStarted;  // ★ 标记滚动区域是否已开始
+
+        public float ScrollableTop => Rect.y + TitleBarHeight + MenuBarHeight;
+        public float ScrollableHeight => Rect.height - TitleBarHeight - MenuBarHeight - 10;
         public float MaxScrollY => Mathf.Max(0, ContentHeight - ScrollableHeight);
         public bool HasVerticalScroll => ContentHeight > ScrollableHeight;
     }
