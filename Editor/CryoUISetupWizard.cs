@@ -1,8 +1,9 @@
 ﻿using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
+using Cryo;
 
-namespace CryoUI.Editor
+namespace Cryo.Editor
 {
     public static class CryoUISetupWizard
     {

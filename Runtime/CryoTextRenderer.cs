@@ -39,6 +39,11 @@ namespace Cryo
                 _fontAsset.ReadFontAssetDefinition();
                 _fontMaterial = new Material(_fontAsset.material);
                 _fontMaterial.hideFlags = HideFlags.HideAndDontSave;
+
+                // 设置更锐利的SDF渲染参数
+                _fontMaterial.SetFloat("_OutlineSoftness", 0f);
+                _fontMaterial.SetFloat("_WeightNormal", 0.5f);
+
                 _initialized = true;
             }
             else
@@ -138,10 +143,12 @@ namespace Cryo
                 GlyphRect glyphRect = glyph.glyphRect;
 
                 float baselineY = cursorY + sourceAscender;
-                float charLeft = Mathf.Round(cursorX + metrics.horizontalBearingX * fontScale);
-                float charTop = Mathf.Round(baselineY - metrics.horizontalBearingY * fontScale);
-                float charRight = charLeft + Mathf.Round(metrics.width * fontScale);
-                float charBottom = charTop + Mathf.Round(metrics.height * fontScale);
+
+                // 使用Floor而非Round，确保一致的像素对齐
+                float charLeft = Mathf.Floor(cursorX + metrics.horizontalBearingX * fontScale + 0.5f);
+                float charTop = Mathf.Floor(baselineY - metrics.horizontalBearingY * fontScale + 0.5f);
+                float charRight = charLeft + Mathf.Ceil(metrics.width * fontScale);
+                float charBottom = charTop + Mathf.Ceil(metrics.height * fontScale);
 
                 float unityTop = Screen.height - charTop;
                 float unityBottom = Screen.height - charBottom;
@@ -149,13 +156,11 @@ namespace Cryo
                 float atlasWidth = sourceFont.atlasWidth;
                 float atlasHeight = sourceFont.atlasHeight;
 
-                float halfPixelU = 0.5f / atlasWidth;
-                float halfPixelV = 0.5f / atlasHeight;
-
-                float u0 = glyphRect.x / atlasWidth + halfPixelU;
-                float u1 = (glyphRect.x + glyphRect.width) / atlasWidth - halfPixelU;
-                float v0 = glyphRect.y / atlasHeight + halfPixelV;
-                float v1 = (glyphRect.y + glyphRect.height) / atlasHeight - halfPixelV;
+                // SDF纹理不需要半像素偏移，直接使用精确UV
+                float u0 = glyphRect.x / atlasWidth;
+                float u1 = (glyphRect.x + glyphRect.width) / atlasWidth;
+                float v0 = glyphRect.y / atlasHeight;
+                float v1 = (glyphRect.y + glyphRect.height) / atlasHeight;
 
                 int vertexOffset = _vertices.Count;
 
@@ -241,6 +246,22 @@ namespace Cryo
             TextMesh.SetColors(_colors);
             TextMesh.SetUVs(0, _uvs);
             TextMesh.SetTriangles(_indices, 0);
+        }
+
+        // 在类中添加方法
+        public void SetSharpness(float sharpness)
+        {
+            if (_fontMaterial != null)
+            {
+                // 调整SDF边缘锐度 (值越大越锐利，通常0.4-0.6)
+                _fontMaterial.SetFloat("_OutlineSoftness", Mathf.Clamp01(1f - sharpness));
+                
+                // 如果材质支持，调整面部膨胀
+                if (_fontMaterial.HasProperty("_FaceDilate"))
+                {
+                    _fontMaterial.SetFloat("_FaceDilate", 0.1f);
+                }
+            }
         }
     }
 }

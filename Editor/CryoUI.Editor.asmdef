@@ -3,11 +3,20 @@
   "rootNamespace": "Cryo.Editor",
   "references": [
     "CryoUI.Runtime",
-    "Unity.RenderPipelines.Universal.Runtime"
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.RenderPipelines.Core.Editor",
+    "Unity.RenderPipelines.Universal.Editor"
   ],
   "includePlatforms": [
     "Editor"
   ],
   "excludePlatforms": [],
-  "allowUnsafeCode": false
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
 }

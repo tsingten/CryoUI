@@ -2,7 +2,9 @@
   "name": "CryoUI.Runtime",
   "rootNamespace": "Cryo",
   "references": [
-    "Unity.RenderPipelines.Universal.Runtime"
+    "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.TextMeshPro",
+    "Unity.RenderPipelines.Core.Runtime"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],
