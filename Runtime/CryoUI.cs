@@ -29,6 +29,7 @@ namespace Cryo
 
             var state = ctx.GetWindowState(id);
             state.Title = title;
+            state.MenuBarHeight = 0;  // ★ 每帧重置菜单栏高度
 
             if (state.Rect.width == 0)
                 state.Rect = new Rect(defaultPos, defaultSize);
@@ -37,17 +38,8 @@ namespace Cryo
 
             Rect windowRect = state.Rect;
             Rect titleBarRect = new Rect(windowRect.x, windowRect.y, windowRect.width, state.TitleBarHeight);
-            Rect contentRect = new Rect(windowRect.x, windowRect.y + state.TitleBarHeight,
-                                         windowRect.width, windowRect.height - state.TitleBarHeight);
 
             ctx.RegisterInteractiveRect(windowRect);
-
-            // ★ 处理滚动输入
-            if (contentRect.Contains(ctx.MousePosition) && ctx.ScrollDelta != 0)
-            {
-                state.ScrollOffset.y -= ctx.ScrollDelta * 30f;
-                state.ScrollOffset.y = Mathf.Clamp(state.ScrollOffset.y, 0, state.MaxScrollY);
-            }
 
             // ★ 绘制到背景层
             var drawList = ctx.DrawListBackground;
@@ -81,14 +73,10 @@ namespace Cryo
             if (closeHovered && ctx.MouseClicked)
                 isOpen = false;
 
-            // ★ 设置内容起始位置（考虑滚动偏移）
-            state.ContentStart = new Vector2(windowRect.x + 10, windowRect.y + state.TitleBarHeight + 10 - state.ScrollOffset.y);
+            // ★ 初始内容位置（滚动和裁剪在 BeginScrollArea 中应用）
+            state.ContentStart = new Vector2(windowRect.x + 10, windowRect.y + state.TitleBarHeight + 5);
             ctx.CursorPosition = state.ContentStart;
             ctx.StartX = state.ContentStart.x;
-
-            // ★ 设置裁剪区域
-            ctx.DrawListForeground.PushClipRect(contentRect);
-            ctx.TextRenderer.PushClipRect(contentRect);
 
             ctx.PushWindow(state);
             state.IsOpen = isOpen;
@@ -103,11 +91,11 @@ namespace Cryo
             var ctx = CryoContext.Current;
             var state = ctx.CurrentWindow;
 
-            // ★ 记录内容高度
             if (state != null)
             {
+                // ★ 计算内容高度（加回滚动偏移）
                 float contentBottom = ctx.CursorPosition.y + state.ScrollOffset.y;
-                state.ContentHeight = contentBottom - (state.Rect.y + state.TitleBarHeight);
+                state.ContentHeight = contentBottom - state.ScrollableTop + 10;
 
                 // ★ 绘制滚动条
                 if (state.HasVerticalScroll)
@@ -123,26 +111,25 @@ namespace Cryo
             ctx.PopWindow();
             ctx.PopId();
             ctx.StartX = 10f;
-            ctx.CursorPosition = new Vector2(10, ctx.CursorPosition.y + state.ScrollOffset.y + 10);
+            ctx.CursorPosition = new Vector2(10, (state?.Rect.yMax ?? ctx.CursorPosition.y) + 10);
         }
 
         private static void DrawScrollbar(WindowState state)
         {
             var ctx = CryoContext.Current;
             float scrollbarWidth = 8f;
-            float contentAreaHeight = state.Rect.height - state.TitleBarHeight;
 
             Rect scrollbarTrack = new Rect(
-                state.Rect.xMax - scrollbarWidth - 2,
-                state.Rect.y + state.TitleBarHeight + 2,
+                state.Rect.xMax - scrollbarWidth - 4,
+                state.ScrollableTop + 2,
                 scrollbarWidth,
-                contentAreaHeight - 4
+                state.ScrollableHeight - 4
             );
 
             // 计算滑块大小和位置
-            float visibleRatio = contentAreaHeight / state.ContentHeight;
+            float visibleRatio = state.ScrollableHeight / state.ContentHeight;
             float thumbHeight = Mathf.Max(scrollbarTrack.height * visibleRatio, 20f);
-            float scrollRatio = state.ScrollOffset.y / state.MaxScrollY;
+            float scrollRatio = state.MaxScrollY > 0 ? state.ScrollOffset.y / state.MaxScrollY : 0;
             float thumbY = scrollbarTrack.y + scrollRatio * (scrollbarTrack.height - thumbHeight);
 
             Rect scrollbarThumb = new Rect(scrollbarTrack.x, thumbY, scrollbarWidth, thumbHeight);
@@ -174,7 +161,6 @@ namespace Cryo
                 }
             }
         }
-
         private static void HandleWindowDrag(int id, WindowState state)
         {
             var ctx = CryoContext.Current;
@@ -397,11 +383,19 @@ namespace Cryo
         public static void BeginMenuBar()
         {
             var ctx = CryoContext.Current;
+            var state = ctx.CurrentWindow;
+
             _menuBarY = ctx.CursorPosition.y;
             _menuBarHeight = Style.FontSize + 10;
             _menuClickedThisFrame = false;
 
-            float windowWidth = ctx.CurrentWindow?.Rect.width - 20 ?? 300f;
+            // ★ 记录菜单栏高度到窗口状态
+            if (state != null)
+            {
+                state.MenuBarHeight = _menuBarHeight + 6;  // 包含间距
+            }
+
+            float windowWidth = state?.Rect.width - 20 ?? 300f;
             Rect menuBarRect = new Rect(ctx.CursorPosition.x, ctx.CursorPosition.y, windowWidth, _menuBarHeight);
 
             ctx.DrawListForeground.AddRectFilled(menuBarRect, Style.MenuBarBackground, Style.WindowBorder);
@@ -411,7 +405,63 @@ namespace Cryo
         public static void EndMenuBar()
         {
             var ctx = CryoContext.Current;
+            var state = ctx.CurrentWindow;
+
             ctx.CursorPosition = new Vector2(ctx.StartX, _menuBarY + _menuBarHeight + 6);
+
+            // ★ 菜单栏结束后，开始可滚动区域
+            if (state != null)
+            {
+                BeginScrollArea();
+            }
+        }
+
+        // ★ 新增：开始可滚动区域
+        private static void BeginScrollArea()
+        {
+            var ctx = CryoContext.Current;
+            var state = ctx.CurrentWindow;
+            if (state == null) return;
+
+            // 可滚动内容区域（菜单栏下方到窗口底部）
+            Rect scrollableRect = new Rect(
+                state.Rect.x,
+                state.ScrollableTop,
+                state.Rect.width - 12,  // 留出滚动条空间
+                state.ScrollableHeight
+            );
+
+            // ★ 处理滚动输入
+            if (scrollableRect.Contains(ctx.MousePosition) && ctx.ScrollDelta != 0)
+            {
+                state.ScrollOffset.y -= ctx.ScrollDelta * 30f;
+                state.ScrollOffset.y = Mathf.Clamp(state.ScrollOffset.y, 0, state.MaxScrollY);
+            }
+
+            // ★ 设置裁剪区域
+            ctx.DrawListForeground.PushClipRect(scrollableRect);
+            ctx.TextRenderer.PushClipRect(scrollableRect);
+
+            // ★ 应用滚动偏移到光标位置
+            ctx.CursorPosition = new Vector2(ctx.CursorPosition.x, ctx.CursorPosition.y - state.ScrollOffset.y);
+
+            // ★ 记录内容起始位置用于计算内容高度
+            state.ContentStart = ctx.CursorPosition;
+        }
+
+        // ★ 新增：无菜单栏时也要处理滚动
+        public static void BeginScrollableContent()
+        {
+            var ctx = CryoContext.Current;
+            var state = ctx.CurrentWindow;
+            if (state == null) return;
+
+            // 如果没有菜单栏，直接开始滚动区域
+            if (state.MenuBarHeight == 0)
+            {
+                state.MenuBarHeight = 0;
+                BeginScrollArea();
+            }
         }
 
         public static bool BeginMenu(string label)
