@@ -30,12 +30,12 @@ namespace Cryo
             var state = ctx.GetWindowState(id);
             state.Title = title;
             state.MenuBarHeight = 0;
-            state.ScrollAreaStarted = false;  // ★ 重置滚动区域标记
+            state.ScrollAreaStarted = false;
+            // ★ 不要重置 ContentHeight，保持上一帧的值
 
             if (state.Rect.width == 0)
                 state.Rect = new Rect(defaultPos, defaultSize);
 
-            // ★ 点击窗口时提升到最前面
             if (state.Rect.Contains(ctx.MousePosition) && ctx.MouseClicked)
             {
                 ctx.BringWindowToFront(id);
@@ -89,6 +89,7 @@ namespace Cryo
             return isOpen;
         }
 
+
         public static void EndWindow()
         {
             CheckCloseMenuOnClickOutside();
@@ -98,12 +99,12 @@ namespace Cryo
 
             if (state != null)
             {
-                // ★ 只有当滚动区域已开始时才处理
+                // ★ 如果滚动区域没有开始，说明没有内容需要滚动
                 if (state.ScrollAreaStarted)
                 {
-                    // 计算内容高度（加回滚动偏移）
+                    // ★ 计算内容高度
                     float contentBottom = ctx.CursorPosition.y + state.ScrollOffset.y;
-                    state.ContentHeight = contentBottom - state.ScrollableTop + 10;
+                    state.ContentHeight = contentBottom - state.ContentStartY;
 
                     // 绘制滚动条
                     if (state.HasVerticalScroll)
@@ -143,7 +144,7 @@ namespace Cryo
 
             Rect scrollbarThumb = new Rect(scrollbarTrack.x, thumbY, scrollbarWidth, thumbHeight);
 
-            // ★ 不受裁剪影响，直接绘制到前景层（需要临时移除裁剪）
+            // 临时移除裁剪绘制滚动条
             ctx.DrawListForeground.PopClipRect();
 
             // 绘制轨道
@@ -154,7 +155,7 @@ namespace Cryo
             Color32 thumbColor = thumbHovered ? new Color32(100, 150, 200, 200) : new Color32(80, 120, 160, 150);
             ctx.DrawListForeground.AddRectFilled(scrollbarThumb, thumbColor, thumbColor);
 
-            // ★ 恢复裁剪
+            // 恢复裁剪
             Rect scrollableRect = new Rect(state.Rect.x, state.ScrollableTop, state.Rect.width - 12, state.ScrollableHeight);
             ctx.DrawListForeground.PushClipRect(scrollableRect);
 
@@ -220,6 +221,7 @@ namespace Cryo
 
         public static bool TreeNode(string label)
         {
+            EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
             int id = ctx.GetId(label);
 
@@ -298,6 +300,7 @@ namespace Cryo
 
         public static bool Dropdown(string label, ref int selectedIndex, string[] options, float width = 160f)
         {
+            EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
             int id = ctx.GetId(label);
 
@@ -370,6 +373,7 @@ namespace Cryo
 
         public static bool CollapsingHeader(string label, ref bool isOpen)
         {
+            EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
 
             Vector2 textSize = ctx.TextRenderer.CalcTextSize(label, Style.FontSize);
@@ -405,10 +409,9 @@ namespace Cryo
             _menuBarHeight = Style.FontSize + 10;
             _menuClickedThisFrame = false;
 
-            // ★ 记录菜单栏高度到窗口状态
             if (state != null)
             {
-                state.MenuBarHeight = _menuBarHeight + 6;  // 包含间距
+                state.MenuBarHeight = _menuBarHeight + 6;
             }
 
             float windowWidth = state?.Rect.width - 20 ?? 300f;
@@ -421,18 +424,13 @@ namespace Cryo
         public static void EndMenuBar()
         {
             var ctx = CryoContext.Current;
-            var state = ctx.CurrentWindow;
-
             ctx.CursorPosition = new Vector2(ctx.StartX, _menuBarY + _menuBarHeight + 6);
 
-            // ★ 菜单栏结束后，开始可滚动区域
-            if (state != null)
-            {
-                BeginScrollArea();
-            }
+            // 菜单栏结束后，开始可滚动区域
+            BeginScrollArea();
         }
 
-        // ★ 新增：开始可滚动区域
+        // ★ 开始可滚动区域
         private static void BeginScrollArea()
         {
             var ctx = CryoContext.Current;
@@ -449,12 +447,18 @@ namespace Cryo
                 state.ScrollableHeight
             );
 
-            // 处理滚动输入
+            // ★ 记录内容开始位置
+            state.ContentStartY = ctx.CursorPosition.y;
+
+            // 处理滚动输入 - 使用上一帧的 ContentHeight 计算 MaxScrollY
             if (scrollableRect.Contains(ctx.MousePosition) && ctx.ScrollDelta != 0)
             {
                 state.ScrollOffset.y -= ctx.ScrollDelta * 30f;
-                state.ScrollOffset.y = Mathf.Clamp(state.ScrollOffset.y, 0, Mathf.Max(0, state.MaxScrollY));
+                state.ScrollOffset.y = Mathf.Clamp(state.ScrollOffset.y, 0, state.MaxScrollY);
             }
+
+            // ★ 限制滚动范围
+            state.ScrollOffset.y = Mathf.Clamp(state.ScrollOffset.y, 0, Mathf.Max(0, state.MaxScrollY));
 
             // 设置裁剪区域
             ctx.DrawListForeground.PushClipRect(scrollableRect);
@@ -463,7 +467,14 @@ namespace Cryo
             // 应用滚动偏移
             ctx.CursorPosition = new Vector2(ctx.CursorPosition.x, ctx.CursorPosition.y - state.ScrollOffset.y);
         }
-
+        private static void EnsureScrollAreaStarted()
+        {
+            var state = CryoContext.Current.CurrentWindow;
+            if (state != null && !state.ScrollAreaStarted)
+            {
+                BeginScrollArea();
+            }
+        }
         // ★ 无菜单栏时手动开始滚动
         public static void BeginScrollableContent()
         {
@@ -627,6 +638,7 @@ namespace Cryo
 
         public static bool Slider(string label, ref float value, float min, float max, float width = 150f)
         {
+            EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
             int id = ctx.GetId(label);
 
@@ -703,6 +715,7 @@ namespace Cryo
 
         public static bool InputText(string label, ref string text, float width = 200f)
         {
+            EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
             int id = ctx.GetId(label);
 
@@ -942,6 +955,7 @@ namespace Cryo
 
         public static bool Button(string label, Vector2? size = null)
         {
+            EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
             int id = ctx.GetId(label);
 
@@ -986,6 +1000,7 @@ namespace Cryo
 
         public static void Label(string text)
         {
+            EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
             Vector2 textSize = ctx.TextRenderer.CalcTextSize(text, Style.FontSize);
             ctx.TextRenderer.AddText(text, ctx.CursorPosition, Style.Text, Style.FontSize);
@@ -994,6 +1009,7 @@ namespace Cryo
 
         public static void Text(string text, Color32? color = null)
         {
+            EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
             Color32 textColor = color ?? Style.Text;
             Vector2 textSize = ctx.TextRenderer.CalcTextSize(text, Style.FontSize);
@@ -1003,6 +1019,7 @@ namespace Cryo
 
         public static bool Checkbox(string label, ref bool value)
         {
+            EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
 
             float boxSize = 18f;
@@ -1037,6 +1054,7 @@ namespace Cryo
 
         public static void Separator()
         {
+            EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
             float width = ctx.CurrentWindow?.Rect.width - 20 ?? 200f;
             Rect rect = new Rect(ctx.CursorPosition.x, ctx.CursorPosition.y + 5, width, 1);
@@ -1052,6 +1070,7 @@ namespace Cryo
 
         public static void Spacing(float height = 12f)
         {
+            EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
             ctx.CursorPosition = new Vector2(ctx.StartX, ctx.CursorPosition.y + height);
         }

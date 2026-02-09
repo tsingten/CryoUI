@@ -168,12 +168,13 @@ namespace Cryo
 
         // 滚动支持
         public Vector2 ScrollOffset;
-        public float ContentHeight;
+        public float ContentHeight;        // ★ 不要每帧重置，保持上一帧的值
         public float MenuBarHeight;
-        public bool ScrollAreaStarted;  // ★ 标记滚动区域是否已开始
+        public bool ScrollAreaStarted;
+        public float ContentStartY;        // ★ 记录内容开始的Y位置
 
         public float ScrollableTop => Rect.y + TitleBarHeight + MenuBarHeight;
-        public float ScrollableHeight => Rect.height - TitleBarHeight - MenuBarHeight - 10;
+        public float ScrollableHeight => Mathf.Max(Rect.height - TitleBarHeight - MenuBarHeight - 10, 1);
         public float MaxScrollY => Mathf.Max(0, ContentHeight - ScrollableHeight);
         public bool HasVerticalScroll => ContentHeight > ScrollableHeight;
     }
