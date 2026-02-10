@@ -303,12 +303,18 @@ namespace Cryo
             EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
             int id = ctx.GetId(label);
+            var state = ctx.CurrentWindow;
 
             float height = Style.FontSize + 12;
             Rect rect = new Rect(ctx.CursorPosition, new Vector2(width, height));
 
+            // ★ 计算屏幕上的实际位置（加回滚动偏移）
+            float scrollOffset = state?.ScrollAreaStarted == true ? state.ScrollOffset.y : 0;
+            Rect screenRect = new Rect(rect.x, rect.y + scrollOffset, rect.width, rect.height);
+
             ctx.RegisterInteractiveRect(rect);
 
+            // ★ 使用屏幕位置检测悬停
             bool hovered = rect.Contains(ctx.MousePosition);
             bool isOpen = _activeDropdownId == id;
 
@@ -330,16 +336,27 @@ namespace Cryo
             if (isOpen)
             {
                 float optionHeight = Style.FontSize + 10;
-                Rect dropdownRect = new Rect(rect.x, rect.yMax + 2, width, options.Length * optionHeight + 6);
+                float dropdownHeight = options.Length * optionHeight + 6;
+
+                // ★ 使用屏幕位置计算下拉菜单位置
+                float dropdownY = screenRect.yMax + 2;
+
+                // ★ 如果下拉菜单超出窗口底部，向上展开
+                if (state != null && dropdownY + dropdownHeight > state.Rect.yMax)
+                {
+                    dropdownY = screenRect.y - dropdownHeight - 2;
+                }
+
+                Rect dropdownRect = new Rect(screenRect.x, dropdownY, width, dropdownHeight);
 
                 ctx.RegisterInteractiveRect(dropdownRect);
 
-                // ★ 绘制到覆盖层
+                // ★ 绘制到覆盖层（不受裁剪影响）
                 ctx.DrawListOverlay.AddRectFilled(dropdownRect, Style.DropdownBackground, Style.WindowBorder, 1f);
 
                 for (int i = 0; i < options.Length; i++)
                 {
-                    Rect optionRect = new Rect(rect.x + 3, rect.yMax + 5 + i * optionHeight, width - 6, optionHeight);
+                    Rect optionRect = new Rect(dropdownRect.x + 3, dropdownRect.y + 3 + i * optionHeight, width - 6, optionHeight);
                     bool optionHovered = optionRect.Contains(ctx.MousePosition);
 
                     if (optionHovered)
@@ -360,10 +377,20 @@ namespace Cryo
                 }
             }
 
+            // ★ 计算总宽度（包含标签）
+            float totalWidth = width;
             if (!string.IsNullOrEmpty(label))
+            {
+                Vector2 labelSize = ctx.TextRenderer.CalcTextSize(label, Style.FontSize);
                 ctx.TextRenderer.AddText(label, new Vector2(rect.xMax + 10, rect.y + (height - Style.FontSize) * 0.5f), Style.Text, Style.FontSize);
+                totalWidth = width + 10 + labelSize.x;
+            }
 
-            AdvanceCursor(new Vector2(width, height));
+            ctx.LastItemY = ctx.CursorPosition.y;
+            ctx.LastItemEndX = ctx.CursorPosition.x + totalWidth;
+            ctx.CurrentLineHeight = Mathf.Max(ctx.CurrentLineHeight, height);
+            ctx.CursorPosition = new Vector2(ctx.StartX, ctx.CursorPosition.y + height + ctx.ItemSpacing);
+
             return changed;
         }
 
