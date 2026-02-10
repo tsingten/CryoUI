@@ -9,6 +9,9 @@ namespace Cryo
 
         // 菜单状态
         private static int _activeDropdownId = 0;
+        private static Rect _activeDropdownRect;     
+        private static Rect _activeDropdownTriggerRect;  
+
         private static int _activeMenuId = 0;
         private static float _activeMenuX = 0;
         private static float _activeMenuY = 0;
@@ -204,16 +207,26 @@ namespace Cryo
 
         private static void CheckCloseMenuOnClickOutside()
         {
-            if (_activeMenuId == 0 || _menuClickedThisFrame) return;
-
             var ctx = CryoContext.Current;
+
+            // ★ 检查关闭 Dropdown
+            if (_activeDropdownId != 0 && ctx.MouseClicked)
+            {
+                Rect combinedRect = RectUnion(_activeDropdownTriggerRect, _activeDropdownRect);
+                if (!combinedRect.Contains(ctx.MousePosition))
+                {
+                    _activeDropdownId = 0;
+                }
+            }
+
+            // 检查关闭 Menu
+            if (_activeMenuId == 0 || _menuClickedThisFrame) return;
             if (!ctx.MouseClicked) return;
 
-            Rect combinedRect = RectUnion(_activeMenuTitleRect, _activeMenuDropdownRect);
-            if (!combinedRect.Contains(ctx.MousePosition))
+            Rect combinedMenuRect = RectUnion(_activeMenuTitleRect, _activeMenuDropdownRect);
+            if (!combinedMenuRect.Contains(ctx.MousePosition))
                 _activeMenuId = 0;
         }
-
         #endregion
         // 在 CryoUI 类中添加以下 region：
 
