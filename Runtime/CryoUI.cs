@@ -308,20 +308,30 @@ namespace Cryo
             float height = Style.FontSize + 12;
             Rect rect = new Rect(ctx.CursorPosition, new Vector2(width, height));
 
-            // ★ 计算屏幕上的实际位置（加回滚动偏移）
-            float scrollOffset = state?.ScrollAreaStarted == true ? state.ScrollOffset.y : 0;
-            Rect screenRect = new Rect(rect.x, rect.y + scrollOffset, rect.width, rect.height);
-
             ctx.RegisterInteractiveRect(rect);
 
-            // ★ 使用屏幕位置检测悬停
             bool hovered = rect.Contains(ctx.MousePosition);
             bool isOpen = _activeDropdownId == id;
+
+            // ★ 点击其他地方关闭下拉菜单
+            if (isOpen && ctx.MouseClicked && !hovered)
+            {
+                // 检查是否点击在下拉菜单区域内
+                if (!_activeDropdownRect.Contains(ctx.MousePosition))
+                {
+                    _activeDropdownId = 0;
+                    isOpen = false;
+                }
+            }
 
             if (hovered && ctx.MouseClicked)
             {
                 _activeDropdownId = isOpen ? 0 : id;
                 isOpen = _activeDropdownId == id;
+                if (isOpen)
+                {
+                    _activeDropdownTriggerRect = rect;
+                }
             }
 
             Color32 bgColor = hovered ? Style.DropdownHovered : Style.DropdownNormal;
@@ -338,16 +348,26 @@ namespace Cryo
                 float optionHeight = Style.FontSize + 10;
                 float dropdownHeight = options.Length * optionHeight + 6;
 
-                // ★ 使用屏幕位置计算下拉菜单位置
-                float dropdownY = screenRect.yMax + 2;
+                // ★ 计算下拉菜单在屏幕上的位置
+                // rect.y 已经是滚动后的内容坐标，需要转换为屏幕坐标
+                float scrollOffset = state?.ScrollAreaStarted == true ? state.ScrollOffset.y : 0;
+                float screenY = rect.y + scrollOffset;  // 控件在屏幕上的 Y 位置
+                float dropdownY = screenY + height + 2;  // 下拉菜单位置
 
                 // ★ 如果下拉菜单超出窗口底部，向上展开
                 if (state != null && dropdownY + dropdownHeight > state.Rect.yMax)
                 {
-                    dropdownY = screenRect.y - dropdownHeight - 2;
+                    dropdownY = screenY - dropdownHeight - 2;
                 }
 
-                Rect dropdownRect = new Rect(screenRect.x, dropdownY, width, dropdownHeight);
+                // ★ 确保不超出屏幕顶部
+                if (dropdownY < 0)
+                {
+                    dropdownY = screenY + height + 2;
+                }
+
+                Rect dropdownRect = new Rect(rect.x, dropdownY, width, dropdownHeight);
+                _activeDropdownRect = dropdownRect;  // ★ 记录下拉菜单区域
 
                 ctx.RegisterInteractiveRect(dropdownRect);
 
