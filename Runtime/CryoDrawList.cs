@@ -10,9 +10,9 @@ namespace Cryo
         private readonly List<Color32> _colors = new List<Color32>();
         private readonly List<Vector2> _uvs = new List<Vector2>();
 
-        // 添加裁剪区域栈
+        // ★ 裁剪栈
         private readonly Stack<Rect> _clipRectStack = new Stack<Rect>();
-        private Rect? _currentClipRect;
+        private Rect _currentClipRect = new Rect(0, 0, float.MaxValue, float.MaxValue);
 
         public Mesh Mesh { get; private set; }
 
@@ -22,12 +22,56 @@ namespace Cryo
             _indices.Clear();
             _colors.Clear();
             _uvs.Clear();
-            _clipRectStack.Clear();      // ★ 清除裁剪栈
-            _currentClipRect = null;     // ★ 重置当前裁剪区域
+            _clipRectStack.Clear();
+            _currentClipRect = new Rect(0, 0, Screen.width, Screen.height);
+        }
+
+        public void PushClipRect(Rect rect)
+        {
+            _clipRectStack.Push(_currentClipRect);
+            // 与当前裁剪区域求交集
+            _currentClipRect = RectIntersect(_currentClipRect, ConvertToScreenRect(rect));
+        }
+
+        public void PopClipRect()
+        {
+            if (_clipRectStack.Count > 0)
+            {
+                _currentClipRect = _clipRectStack.Pop();
+            }
+            else
+            {
+                _currentClipRect = new Rect(0, 0, Screen.width, Screen.height);
+            }
+        }
+
+        private Rect ConvertToScreenRect(Rect guiRect)
+        {
+            // GUI 坐标系：左上角为原点，Y 向下
+            // 屏幕坐标系：左下角为原点，Y 向上
+            float screenTop = Screen.height - guiRect.y;
+            float screenBottom = Screen.height - (guiRect.y + guiRect.height);
+            return new Rect(guiRect.x, screenBottom, guiRect.width, screenTop - screenBottom);
+        }
+
+        private Rect RectIntersect(Rect a, Rect b)
+        {
+            float xMin = Mathf.Max(a.xMin, b.xMin);
+            float yMin = Mathf.Max(a.yMin, b.yMin);
+            float xMax = Mathf.Min(a.xMax, b.xMax);
+            float yMax = Mathf.Min(a.yMax, b.yMax);
+            if (xMax < xMin || yMax < yMin)
+                return new Rect(0, 0, 0, 0);
+            return new Rect(xMin, yMin, xMax - xMin, yMax - yMin);
         }
 
         public void AddRect(Rect rect, Color32 color)
         {
+            // ★ 裁剪检查
+            Rect screenRect = ConvertToScreenRect(rect);
+            if (!_currentClipRect.Overlaps(screenRect))
+                return;
+
             int vertexOffset = _vertices.Count;
 
             float y1 = Screen.height - rect.y;
@@ -58,32 +102,9 @@ namespace Cryo
 
         public void AddRectFilled(Rect rect, Color32 fillColor, Color32 borderColor, float borderWidth = 1f)
         {
-            if (IsClipped(rect)) return; // 检查裁剪
-
             AddRect(rect, borderColor);
             var innerRect = new Rect(rect.x + borderWidth, rect.y + borderWidth, rect.width - borderWidth * 2, rect.height - borderWidth * 2);
             AddRect(innerRect, fillColor);
-        }
-
-        // 添加裁剪区域
-        public void PushClipRect(Rect rect)
-        {
-            _clipRectStack.Push(rect);
-            _currentClipRect = rect;
-        }
-
-        public void PopClipRect()
-        {
-            if (_clipRectStack.Count > 0)
-                _clipRectStack.Pop();
-            _currentClipRect = _clipRectStack.Count > 0 ? _clipRectStack.Peek() : (Rect?)null;
-        }
-
-        // 在绘制方法中检查裁剪（例如 AddRectFilled 开头添加）
-        private bool IsClipped(Rect rect)
-        {
-            if (!_currentClipRect.HasValue) return false;
-            return !_currentClipRect.Value.Overlaps(rect);
         }
 
         public void BuildMesh()

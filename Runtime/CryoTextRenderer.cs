@@ -21,6 +21,7 @@ namespace Cryo
         private readonly Stack<Rect> _clipRectStack = new Stack<Rect>();
         private Rect? _currentClipRect;
 
+
         public Mesh TextMesh { get; private set; }
         public Material FontMaterial => _fontMaterial;
         public TMP_FontAsset FontAsset => _fontAsset;
@@ -121,7 +122,6 @@ namespace Cryo
         {
             if (_fontAsset == null || string.IsNullOrEmpty(text))
                 return Vector2.zero;
-
             if (!_initialized) LoadFont();
 
             float size = fontSize > 0 ? fontSize : _fontSize;

@@ -9,8 +9,9 @@ namespace Cryo
 
         // 菜单状态
         private static int _activeDropdownId = 0;
-        private static Rect _activeDropdownRect;     
-        private static Rect _activeDropdownTriggerRect;  
+        private static Rect _activeDropdownRect;
+        private static Rect _activeDropdownTriggerRect;
+        private static float _dropdownScrollOffset = 0f;  // ★ 添加：下拉菜单滚动偏移
 
         private static int _activeMenuId = 0;
         private static float _activeMenuX = 0;
@@ -311,7 +312,7 @@ namespace Cryo
 
         #region Dropdown
 
-        public static bool Dropdown(string label, ref int selectedIndex, string[] options, float width = 160f)
+        public static bool Dropdown(string label, ref int selectedIndex, string[] options, float width = 160f, int maxVisibleItems = 8)
         {
             EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
@@ -326,10 +327,9 @@ namespace Cryo
             bool hovered = rect.Contains(ctx.MousePosition);
             bool isOpen = _activeDropdownId == id;
 
-            // ★ 点击其他地方关闭下拉菜单
+            // 点击其他地方关闭下拉菜单
             if (isOpen && ctx.MouseClicked && !hovered)
             {
-                // 检查是否点击在下拉菜单区域内
                 if (!_activeDropdownRect.Contains(ctx.MousePosition))
                 {
                     _activeDropdownId = 0;
@@ -339,11 +339,17 @@ namespace Cryo
 
             if (hovered && ctx.MouseClicked)
             {
-                _activeDropdownId = isOpen ? 0 : id;
-                isOpen = _activeDropdownId == id;
                 if (isOpen)
                 {
+                    _activeDropdownId = 0;
+                    isOpen = false;
+                }
+                else
+                {
+                    _activeDropdownId = id;
                     _activeDropdownTriggerRect = rect;
+                    _dropdownScrollOffset = 0f;  // 重置滚动
+                    isOpen = true;
                 }
             }
 
@@ -351,55 +357,110 @@ namespace Cryo
             ctx.DrawListForeground.AddRectFilled(rect, bgColor, Style.WindowBorder, 1f);
 
             string currentText = (selectedIndex >= 0 && selectedIndex < options.Length) ? options[selectedIndex] : "选择...";
-            ctx.TextRenderer.AddText(currentText, new Vector2(rect.x + 10, rect.y + (height - Style.FontSize) * 0.5f), Style.Text, Style.FontSize);
+
+            // 裁剪过长的文字
+            float maxTextWidth = width - 30;
+            string displayText = currentText;
+            Vector2 textMeasure = ctx.TextRenderer.CalcTextSize(displayText, Style.FontSize);
+            if (textMeasure.x > maxTextWidth)
+            {
+                while (ctx.TextRenderer.CalcTextSize(displayText + "...", Style.FontSize).x > maxTextWidth && displayText.Length > 0)
+                {
+                    displayText = displayText.Substring(0, displayText.Length - 1);
+                }
+                displayText += "...";
+            }
+
+            ctx.TextRenderer.AddText(displayText, new Vector2(rect.x + 10, rect.y + (height - Style.FontSize) * 0.5f), Style.Text, Style.FontSize);
             ctx.TextRenderer.AddText("▼", new Vector2(rect.xMax - 20, rect.y + (height - 10) * 0.5f), Style.TextHighlight, 10f);
 
             bool changed = false;
 
-            if (isOpen)
+            if (isOpen && options.Length > 0)
             {
                 float optionHeight = Style.FontSize + 10;
-                float dropdownHeight = options.Length * optionHeight + 6;
 
-                // ★ 计算下拉菜单在屏幕上的位置
-                // rect.y 已经是滚动后的内容坐标，需要转换为屏幕坐标
+                // ★ 限制可见项目数
+                int visibleCount = Mathf.Min(options.Length, maxVisibleItems);
+                float dropdownHeight = visibleCount * optionHeight + 6;
+                bool needsScroll = options.Length > maxVisibleItems;
+                float totalContentHeight = options.Length * optionHeight;
+                float maxScroll = Mathf.Max(0, totalContentHeight - visibleCount * optionHeight);
+
+                // 计算下拉菜单位置
                 float scrollOffset = state?.ScrollAreaStarted == true ? state.ScrollOffset.y : 0;
-                float screenY = rect.y + scrollOffset;  // 控件在屏幕上的 Y 位置
-                float dropdownY = screenY + height + 2;  // 下拉菜单位置
+                float screenY = rect.y + scrollOffset;
+                float dropdownY = screenY + height + 2;
 
-                // ★ 如果下拉菜单超出窗口底部，向上展开
+                // 如果超出窗口底部，向上展开
                 if (state != null && dropdownY + dropdownHeight > state.Rect.yMax)
                 {
                     dropdownY = screenY - dropdownHeight - 2;
                 }
-
-                // ★ 确保不超出屏幕顶部
                 if (dropdownY < 0)
                 {
                     dropdownY = screenY + height + 2;
                 }
 
+                float scrollbarWidth = needsScroll ? 8f : 0f;
                 Rect dropdownRect = new Rect(rect.x, dropdownY, width, dropdownHeight);
-                _activeDropdownRect = dropdownRect;  // ★ 记录下拉菜单区域
+                _activeDropdownRect = dropdownRect;
 
                 ctx.RegisterInteractiveRect(dropdownRect);
 
-                // ★ 绘制到覆盖层（不受裁剪影响）
+                // ★ 处理滚动输入
+                if (needsScroll && dropdownRect.Contains(ctx.MousePosition) && ctx.ScrollDelta != 0)
+                {
+                    _dropdownScrollOffset -= ctx.ScrollDelta * optionHeight;
+                    _dropdownScrollOffset = Mathf.Clamp(_dropdownScrollOffset, 0, maxScroll);
+                }
+
+                // 绘制下拉框背景
                 ctx.DrawListOverlay.AddRectFilled(dropdownRect, Style.DropdownBackground, Style.WindowBorder, 1f);
+
+                // ★ 裁剪区域（只对选项内容）
+                Rect contentArea = new Rect(dropdownRect.x + 3, dropdownRect.y + 3,
+                                             width - 6 - scrollbarWidth, dropdownHeight - 6);
 
                 for (int i = 0; i < options.Length; i++)
                 {
-                    Rect optionRect = new Rect(dropdownRect.x + 3, dropdownRect.y + 3 + i * optionHeight, width - 6, optionHeight);
-                    bool optionHovered = optionRect.Contains(ctx.MousePosition);
+                    float itemY = dropdownRect.y + 3 + i * optionHeight - _dropdownScrollOffset;
+
+                    // ★ 跳过不可见的项目
+                    if (itemY + optionHeight < contentArea.y || itemY > contentArea.yMax)
+                        continue;
+
+                    Rect optionRect = new Rect(dropdownRect.x + 3, itemY, width - 6 - scrollbarWidth, optionHeight);
+
+                    // 只有在可见区域内才检测悬停
+                    bool optionVisible = optionRect.yMax > contentArea.y && optionRect.y < contentArea.yMax;
+                    bool optionHovered = optionVisible && optionRect.Contains(ctx.MousePosition) && contentArea.Contains(ctx.MousePosition);
 
                     if (optionHovered)
                         ctx.DrawListOverlay.AddRectFilled(optionRect, Style.DropdownOptionHovered, Style.DropdownOptionHovered);
 
-                    if (i == selectedIndex)
-                        ctx.TextRendererOverlay.AddText("✓", new Vector2(optionRect.x + 4, optionRect.y + 4), Style.DropdownSelected, 12f);
+                    // ★ 只绘制可见部分
+                    if (optionVisible)
+                    {
+                        if (i == selectedIndex)
+                            ctx.TextRendererOverlay.AddText("✓", new Vector2(optionRect.x + 4, optionRect.y + 4), Style.DropdownSelected, 12f);
 
-                    Color32 textColor = (i == selectedIndex) ? Style.DropdownSelected : Style.Text;
-                    ctx.TextRendererOverlay.AddText(options[i], new Vector2(optionRect.x + 22, optionRect.y + 5), textColor, Style.FontSize);
+                        // 裁剪选项文字
+                        string optionText = options[i];
+                        float optionMaxWidth = contentArea.width - 28;
+                        Vector2 optionTextSize = ctx.TextRendererOverlay.CalcTextSize(optionText, Style.FontSize);
+                        if (optionTextSize.x > optionMaxWidth)
+                        {
+                            while (ctx.TextRendererOverlay.CalcTextSize(optionText + "...", Style.FontSize).x > optionMaxWidth && optionText.Length > 0)
+                            {
+                                optionText = optionText.Substring(0, optionText.Length - 1);
+                            }
+                            optionText += "...";
+                        }
+
+                        Color32 textColor = (i == selectedIndex) ? Style.DropdownSelected : Style.Text;
+                        ctx.TextRendererOverlay.AddText(optionText, new Vector2(optionRect.x + 22, optionRect.y + 5), textColor, Style.FontSize);
+                    }
 
                     if (optionHovered && ctx.MouseClicked)
                     {
@@ -408,9 +469,53 @@ namespace Cryo
                         changed = true;
                     }
                 }
+
+                // ★ 绘制滚动条
+                if (needsScroll)
+                {
+                    Rect scrollbarTrack = new Rect(
+                        dropdownRect.xMax - scrollbarWidth - 2,
+                        dropdownRect.y + 3,
+                        scrollbarWidth - 2,
+                        dropdownHeight - 6
+                    );
+
+                    float thumbRatio = (float)visibleCount / options.Length;
+                    float thumbHeight = Mathf.Max(scrollbarTrack.height * thumbRatio, 16f);
+                    float thumbY = scrollbarTrack.y + (_dropdownScrollOffset / maxScroll) * (scrollbarTrack.height - thumbHeight);
+
+                    Rect scrollbarThumb = new Rect(scrollbarTrack.x, thumbY, scrollbarTrack.width, thumbHeight);
+
+                    // 绘制轨道
+                    ctx.DrawListOverlay.AddRectFilled(scrollbarTrack, new Color32(30, 40, 50, 150), new Color32(30, 40, 50, 150));
+
+                    // 绘制滑块
+                    bool thumbHovered = scrollbarThumb.Contains(ctx.MousePosition);
+                    Color32 thumbColor = thumbHovered ? new Color32(100, 150, 200, 220) : new Color32(70, 110, 160, 180);
+                    ctx.DrawListOverlay.AddRectFilled(scrollbarThumb, thumbColor, thumbColor);
+
+                    // ★ 滑块拖拽
+                    int scrollbarId = ctx.GetId("__dropdown_scrollbar__");
+                    if (thumbHovered && ctx.MouseClicked)
+                        ctx.ActiveId = scrollbarId;
+
+                    if (ctx.ActiveId == scrollbarId)
+                    {
+                        if (ctx.MouseDown)
+                        {
+                            float newThumbY = ctx.MousePosition.y - thumbHeight * 0.5f;
+                            float newScrollRatio = (newThumbY - scrollbarTrack.y) / (scrollbarTrack.height - thumbHeight);
+                            _dropdownScrollOffset = Mathf.Clamp(newScrollRatio * maxScroll, 0, maxScroll);
+                        }
+                        else
+                        {
+                            ctx.ActiveId = 0;
+                        }
+                    }
+                }
             }
 
-            // ★ 计算总宽度（包含标签）
+            // 计算总宽度（包含标签）
             float totalWidth = width;
             if (!string.IsNullOrEmpty(label))
             {
@@ -428,7 +533,6 @@ namespace Cryo
         }
 
         #endregion
-
         #region CollapsingHeader
 
         public static bool CollapsingHeader(string label, ref bool isOpen)
