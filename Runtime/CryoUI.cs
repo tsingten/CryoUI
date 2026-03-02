@@ -249,7 +249,7 @@ namespace Cryo
 
             ctx.RegisterInteractiveRect(rect);
 
-            bool hovered = rect.Contains(ctx.MousePosition);
+            bool hovered = IsItemHovered(rect);
             if (hovered && ctx.MouseClicked)
             {
                 isOpen = !isOpen;
@@ -287,7 +287,8 @@ namespace Cryo
 
             ctx.RegisterInteractiveRect(rect);
 
-            bool hovered = rect.Contains(ctx.MousePosition);
+
+            bool hovered = IsItemHovered(rect);
             bool clicked = hovered && ctx.MouseClicked;
 
             if (hovered)
@@ -323,8 +324,7 @@ namespace Cryo
             Rect rect = new Rect(ctx.CursorPosition, new Vector2(width, height));
 
             ctx.RegisterInteractiveRect(rect);
-
-            bool hovered = rect.Contains(ctx.MousePosition);
+            bool hovered = IsItemHovered(rect);
             bool isOpen = _activeDropdownId == id;
 
             // 点击其他地方关闭下拉菜单
@@ -387,19 +387,17 @@ namespace Cryo
                 float totalContentHeight = options.Length * optionHeight;
                 float maxScroll = Mathf.Max(0, totalContentHeight - visibleCount * optionHeight);
 
-                // 计算下拉菜单位置
-                float scrollOffset = state?.ScrollAreaStarted == true ? state.ScrollOffset.y : 0;
-                float screenY = rect.y + scrollOffset;
-                float dropdownY = screenY + height + 2;
+                // ★ 修正：rect.y 已经是屏幕坐标，不需要再加 scrollOffset
+                float dropdownY = rect.y + height + 2;
 
                 // 如果超出窗口底部，向上展开
                 if (state != null && dropdownY + dropdownHeight > state.Rect.yMax)
                 {
-                    dropdownY = screenY - dropdownHeight - 2;
+                    dropdownY = rect.y - dropdownHeight - 2;
                 }
                 if (dropdownY < 0)
                 {
-                    dropdownY = screenY + height + 2;
+                    dropdownY = rect.y + height + 2;
                 }
 
                 float scrollbarWidth = needsScroll ? 8f : 0f;
@@ -547,7 +545,7 @@ namespace Cryo
 
             ctx.RegisterInteractiveRect(rect);
 
-            bool hovered = rect.Contains(ctx.MousePosition);
+            bool hovered = IsItemHovered(rect);
             if (hovered && ctx.MouseClicked) isOpen = !isOpen;
 
             Color32 bgColor = hovered ? Style.HeaderHovered : Style.HeaderNormal;
@@ -615,7 +613,9 @@ namespace Cryo
             state.ContentStartY = ctx.CursorPosition.y;
 
             // 处理滚动输入 - 使用上一帧的 ContentHeight 计算 MaxScrollY
-            if (scrollableRect.Contains(ctx.MousePosition) && ctx.ScrollDelta != 0)
+            // ★ 如果下拉菜单打开且鼠标在下拉菜单上，不处理窗口滚动
+            bool dropdownBlocking = _activeDropdownId != 0 && _activeDropdownRect.Contains(ctx.MousePosition);
+            if (scrollableRect.Contains(ctx.MousePosition) && ctx.ScrollDelta != 0 && !dropdownBlocking)
             {
                 state.ScrollOffset.y -= ctx.ScrollDelta * 30f;
                 state.ScrollOffset.y = Mathf.Clamp(state.ScrollOffset.y, 0, state.MaxScrollY);
@@ -770,7 +770,7 @@ namespace Cryo
             ctx.RegisterInteractiveRect(rect);
 
             bool isSelected = selectedIndex == thisIndex;
-            bool hovered = rect.Contains(ctx.MousePosition);
+            bool hovered = IsItemHovered(rect);
 
             if (hovered && ctx.MouseClicked)
             {
@@ -888,7 +888,7 @@ namespace Cryo
 
             ctx.RegisterInteractiveRect(rect);
 
-            bool hovered = rect.Contains(ctx.MousePosition);
+            bool hovered = IsItemHovered(rect);
             bool focused = ctx.FocusedInputId == id;
 
             if (hovered && ctx.MouseClicked)
@@ -997,7 +997,7 @@ namespace Cryo
 
             ctx.RegisterInteractiveRect(rect);
 
-            bool hovered = rect.Contains(ctx.MousePosition);
+            bool hovered = IsItemHovered(rect);
             bool focused = ctx.FocusedInputId == id;
 
             if (hovered && ctx.MouseClicked)
@@ -1130,7 +1130,7 @@ namespace Cryo
             Rect rect = new Rect(ctx.CursorPosition, buttonSize);
             ctx.RegisterInteractiveRect(rect);
 
-            bool hovered = rect.Contains(ctx.MousePosition);
+            bool hovered = IsItemHovered(rect);
             bool pressed = false;
 
             if (hovered)
@@ -1196,7 +1196,7 @@ namespace Cryo
 
             ctx.RegisterInteractiveRect(totalRect);
 
-            bool hovered = totalRect.Contains(ctx.MousePosition);
+            bool hovered = IsItemHovered(rect);
             if (hovered && ctx.MouseClicked)
                 value = !value;
 
@@ -1242,7 +1242,31 @@ namespace Cryo
         #endregion
 
         #region Helpers
+        /// <summary>
+        /// 检查鼠标是否悬停在项目上，同时验证鼠标在窗口可见滚动区域内
+        /// </summary>
+        private static bool IsItemHovered(Rect rect)
+        {
+            var ctx = CryoContext.Current;
+            if (!rect.Contains(ctx.MousePosition))
+                return false;
 
+            // 如果在窗口的滚动区域内，检查鼠标是否在可见区域内
+            var state = ctx.CurrentWindow;
+            if (state != null && state.ScrollAreaStarted)
+            {
+                Rect visibleArea = new Rect(
+                    state.Rect.x,
+                    state.ScrollableTop,
+                    state.Rect.width,
+                    state.ScrollableHeight
+                );
+                if (!visibleArea.Contains(ctx.MousePosition))
+                    return false;
+            }
+
+            return true;
+        }
         private static void AdvanceCursor(Vector2 size)
         {
             var ctx = CryoContext.Current;
