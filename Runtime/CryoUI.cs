@@ -1196,7 +1196,7 @@ namespace Cryo
 
             ctx.RegisterInteractiveRect(totalRect);
 
-            bool hovered = IsItemHovered(rect);
+            bool hovered = IsItemHovered(totalRect);
             if (hovered && ctx.MouseClicked)
                 value = !value;
 
