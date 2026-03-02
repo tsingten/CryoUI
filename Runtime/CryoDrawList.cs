@@ -67,20 +67,19 @@ namespace Cryo
 
         public void AddRect(Rect rect, Color32 color)
         {
-            // ★ 裁剪检查
+            // ★ 转换到屏幕空间并与裁剪区域求交集
             Rect screenRect = ConvertToScreenRect(rect);
-            if (!_currentClipRect.Overlaps(screenRect))
+            Rect clipped = RectIntersect(screenRect, _currentClipRect);
+            if (clipped.width <= 0 || clipped.height <= 0)
                 return;
 
             int vertexOffset = _vertices.Count;
 
-            float y1 = Screen.height - rect.y;
-            float y2 = Screen.height - (rect.y + rect.height);
-
-            _vertices.Add(new Vector3(rect.x, y1, 0));
-            _vertices.Add(new Vector3(rect.x + rect.width, y1, 0));
-            _vertices.Add(new Vector3(rect.x + rect.width, y2, 0));
-            _vertices.Add(new Vector3(rect.x, y2, 0));
+            // ★ 使用裁剪后的屏幕坐标生成顶点（而非原始 rect）
+            _vertices.Add(new Vector3(clipped.xMin, clipped.yMax, 0));  // 左上
+            _vertices.Add(new Vector3(clipped.xMax, clipped.yMax, 0));  // 右上
+            _vertices.Add(new Vector3(clipped.xMax, clipped.yMin, 0));  // 右下
+            _vertices.Add(new Vector3(clipped.xMin, clipped.yMin, 0));  // 左下
 
             _colors.Add(color);
             _colors.Add(color);

@@ -164,21 +164,17 @@ namespace Cryo
 
                 float baselineY = cursorY + sourceAscender;
 
-                // 使用Floor而非Round，确保一致的像素对齐
                 float charLeft = Mathf.Floor(cursorX + metrics.horizontalBearingX * fontScale + 0.5f);
                 float charTop = Mathf.Floor(baselineY - metrics.horizontalBearingY * fontScale + 0.5f);
                 float charRight = charLeft + Mathf.Ceil(metrics.width * fontScale);
                 float charBottom = charTop + Mathf.Ceil(metrics.height * fontScale);
 
-                // ★ 检查是否在裁剪区域内
+                // ★ 裁剪检查：完全不可见则跳过
                 if (_currentClipRect.HasValue)
                 {
-                    Rect charRect = new Rect(charLeft, Screen.height - charBottom, charRight - charLeft, charBottom - charTop);
-                    Rect clipRect = _currentClipRect.Value;
-                    // 转换为屏幕坐标系进行比较
-                    Rect clipScreenRect = new Rect(clipRect.x, Screen.height - clipRect.yMax, clipRect.width, clipRect.height);
-
-                    if (!charRect.Overlaps(clipScreenRect))
+                    Rect clip = _currentClipRect.Value;
+                    if (charRight <= clip.xMin || charLeft >= clip.xMax ||
+                        charBottom <= clip.yMin || charTop >= clip.yMax)
                     {
                         cursorX += metrics.horizontalAdvance * fontScale;
                         continue;
@@ -198,6 +194,36 @@ namespace Cryo
                 float u1 = (glyphRect.x + glyphRect.width) / atlasWidth - halfPixelU;
                 float v0 = glyphRect.y / atlasHeight + halfPixelV;
                 float v1 = (glyphRect.y + glyphRect.height) / atlasHeight - halfPixelV;
+
+                // ★ 边缘裁剪：将顶点和 UV 裁剪到裁剪区域边界
+                if (_currentClipRect.HasValue)
+                {
+                    Rect clip = _currentClipRect.Value;
+                    float origWidth = charRight - charLeft;
+                    float origHeight = charBottom - charTop;
+
+                    if (origWidth > 0 && origHeight > 0)
+                    {
+                        float clippedLeft = Mathf.Max(charLeft, clip.xMin);
+                        float clippedRight = Mathf.Min(charRight, clip.xMax);
+                        float clippedTop = Mathf.Max(charTop, clip.yMin);
+                        float clippedBottom = Mathf.Min(charBottom, clip.yMax);
+
+                        // 按裁剪比例插值 UV
+                        float origU0 = u0, origU1 = u1, origV0 = v0, origV1 = v1;
+
+                        u0 = Mathf.Lerp(origU0, origU1, (clippedLeft - charLeft) / origWidth);
+                        u1 = Mathf.Lerp(origU0, origU1, (clippedRight - charLeft) / origWidth);
+                        // GUI空间 charTop→v1(图集顶部), charBottom→v0(图集底部)
+                        v1 = Mathf.Lerp(origV1, origV0, (clippedTop - charTop) / origHeight);
+                        v0 = Mathf.Lerp(origV1, origV0, (clippedBottom - charTop) / origHeight);
+
+                        charLeft = clippedLeft;
+                        charRight = clippedRight;
+                        unityTop = Screen.height - clippedTop;
+                        unityBottom = Screen.height - clippedBottom;
+                    }
+                }
 
                 int vertexOffset = _vertices.Count;
 
