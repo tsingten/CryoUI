@@ -348,7 +348,17 @@ namespace Cryo
                 {
                     _activeDropdownId = id;
                     _activeDropdownTriggerRect = rect;
-                    _dropdownScrollOffset = 0f;  // 重置滚动
+                    if (selectedIndex > 0 && options.Length > maxVisibleItems)
+                    {
+                        float optHeight = Style.FontSize + 10;
+                        int visCount = Mathf.Min(options.Length, maxVisibleItems);
+                        float maxScr = Mathf.Max(0, options.Length * optHeight - visCount * optHeight);
+                        _dropdownScrollOffset = Mathf.Clamp(selectedIndex * optHeight, 0, maxScr);
+                    }
+                    else
+                    {
+                        _dropdownScrollOffset = 0f;
+                    }
                     isOpen = true;
                 }
             }
@@ -1244,11 +1254,22 @@ namespace Cryo
         #region Helpers
         /// <summary>
         /// 检查鼠标是否悬停在项目上，同时验证鼠标在窗口可见滚动区域内
+        /// 并排除被覆盖层（Dropdown/Menu）遮挡的区域
         /// </summary>
         private static bool IsItemHovered(Rect rect)
         {
             var ctx = CryoContext.Current;
             if (!rect.Contains(ctx.MousePosition))
+                return false;
+
+            // ★ 如果下拉菜单打开且鼠标在下拉菜单覆盖区域上，阻止底层组件响应
+            if (_activeDropdownId != 0 &&
+                (_activeDropdownRect.width > 0 && _activeDropdownRect.Contains(ctx.MousePosition)))
+                return false;
+
+            // ★ 如果菜单打开且鼠标在菜单覆盖区域上，阻止底层组件响应
+            if (_activeMenuId != 0 &&
+                (_activeMenuDropdownRect.width > 0 && _activeMenuDropdownRect.Contains(ctx.MousePosition)))
                 return false;
 
             // 如果在窗口的滚动区域内，检查鼠标是否在可见区域内
