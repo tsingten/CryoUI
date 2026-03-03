@@ -326,5 +326,65 @@ namespace Cryo
                 }
             }
         }
+
+        /// <summary>
+        /// 计算文本从 startIndex 开始 length 个字符的渲染宽度
+        /// </summary>
+        public float CalcTextWidth(string text, int startIndex, int length, float fontSize = 0)
+        {
+            if (_fontAsset == null || string.IsNullOrEmpty(text)) return 0;
+            if (!_initialized) LoadFont();
+
+            float size = fontSize > 0 ? fontSize : _fontSize;
+            float x = 0;
+            int end = Mathf.Min(startIndex + length, text.Length);
+
+            for (int i = startIndex; i < end; i++)
+            {
+                char c = text[i];
+                if (TryGetCharacter(c, out var character, out var sourceFont))
+                {
+                    float fontScale = size / sourceFont.faceInfo.pointSize;
+                    x += character.glyph.metrics.horizontalAdvance * fontScale;
+                }
+                else
+                {
+                    x += size * 0.5f;
+                }
+            }
+            return x;
+        }
+
+        /// <summary>
+        /// 根据局部 X 坐标，找到最接近的字符索引（用于鼠标点击定位光标）
+        /// </summary>
+        public int GetCharIndexAtX(string text, float localX, float fontSize = 0)
+        {
+            if (_fontAsset == null || string.IsNullOrEmpty(text)) return 0;
+            if (!_initialized) LoadFont();
+
+            float size = fontSize > 0 ? fontSize : _fontSize;
+            float x = 0;
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                float advance;
+                if (TryGetCharacter(text[i], out var character, out var sourceFont))
+                {
+                    float fontScale = size / sourceFont.faceInfo.pointSize;
+                    advance = character.glyph.metrics.horizontalAdvance * fontScale;
+                }
+                else
+                {
+                    advance = size * 0.5f;
+                }
+
+                // 如果 x 在字符前半部分，返回当前索引；后半部分返回下一个索引
+                if (x + advance * 0.5f > localX)
+                    return i;
+                x += advance;
+            }
+            return text.Length;
+        }
     }
 }

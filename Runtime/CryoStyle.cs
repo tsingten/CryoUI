@@ -52,6 +52,7 @@ namespace Cryo
         public Color32 InputBorder = new Color32(60, 120, 180, 180);
         public Color32 InputBorderFocused = new Color32(100, 180, 255, 255);
         public Color32 InputCursor = IceCyan;
+        public Color32 InputSelection = new Color32(60, 140, 220, 100);
 
         // Tab
         public Color32 TabNormal = new Color32(25, 50, 80, 180);

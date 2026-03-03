@@ -29,6 +29,20 @@ namespace Cryo
         public bool EnterPressed { get; set; }
         public bool EscapePressed { get; set; }
 
+        // ★ 扩展键盘输入（现代输入框支持）
+        public bool DeletePressed { get; set; }
+        public bool LeftArrowPressed { get; set; }
+        public bool RightArrowPressed { get; set; }
+        public bool HomePressed { get; set; }
+        public bool EndPressed { get; set; }
+        public bool ShiftHeld { get; set; }
+        public bool CtrlHeld { get; set; }
+        public bool SelectAllRequested { get; set; }
+        public bool CopyRequested { get; set; }
+        public bool PasteRequested { get; set; }
+        public bool CutRequested { get; set; }
+        public bool DoubleClicked { get; set; }
+
         // 绘制列表 - 分层
         public CryoDrawList DrawListBackground { get; } = new CryoDrawList();
         public CryoDrawList DrawListForeground { get; } = new CryoDrawList();

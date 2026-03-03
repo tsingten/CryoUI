@@ -887,32 +887,94 @@ namespace Cryo
 
         #region InputText
 
+        /// <summary>
+        /// 输入框内部状态（通过 CryoContext.GetState 持久化）
+        /// </summary>
+        private class InputFieldState
+        {
+            public int CursorIndex;
+            public int SelectionAnchor = -1;
+            public float ScrollOffset;
+            public bool IsDragging;
+
+            public bool HasSelection => SelectionAnchor >= 0 && SelectionAnchor != CursorIndex;
+            public int SelectionMin => HasSelection ? Mathf.Min(CursorIndex, SelectionAnchor) : CursorIndex;
+            public int SelectionMax => HasSelection ? Mathf.Max(CursorIndex, SelectionAnchor) : CursorIndex;
+
+            public void ClearSelection() => SelectionAnchor = -1;
+
+            public void BeginSelection()
+            {
+                if (SelectionAnchor < 0) SelectionAnchor = CursorIndex;
+            }
+
+            public void DeleteSelection(ref string text)
+            {
+                if (!HasSelection) return;
+                int min = SelectionMin;
+                int max = SelectionMax;
+                text = text.Remove(min, max - min);
+                CursorIndex = min;
+                ClearSelection();
+            }
+
+            public string GetSelectedText(string text)
+            {
+                if (!HasSelection) return "";
+                return text.Substring(SelectionMin, SelectionMax - SelectionMin);
+            }
+        }
+
         public static bool InputText(string label, ref string text, float width = 200f)
+            => InputTextInternal(label, ref text, null, width);
+
+        public static bool InputText(string label, ref string text, string placeholder, float width = 200f)
+            => InputTextInternal(label, ref text, placeholder, width);
+
+        private static bool InputTextInternal(string label, ref string text, string placeholder, float width)
         {
             EnsureScrollAreaStarted();
             var ctx = CryoContext.Current;
             int id = ctx.GetId(label);
 
+            text ??= "";
+
             float height = Style.FontSize + 12;
+            float padding = 8f;
+            float textAreaWidth = width - padding * 2;
             Rect rect = new Rect(ctx.CursorPosition, new Vector2(width, height));
 
             ctx.RegisterInteractiveRect(rect);
-
             bool hovered = IsItemHovered(rect);
             bool focused = ctx.FocusedInputId == id;
 
-            if (hovered && ctx.MouseClicked)
+            // ★ 获取/创建输入框状态
+            var fs = ctx.GetState<InputFieldState>(id, null);
+            if (fs == null)
+            {
+                fs = new InputFieldState();
+                ctx.SetState(id, fs);
+            }
+
+            // 确保索引在合法范围内（外部可能修改了 text）
+            fs.CursorIndex = Mathf.Clamp(fs.CursorIndex, 0, text.Length);
+            if (fs.SelectionAnchor >= 0)
+                fs.SelectionAnchor = Mathf.Clamp(fs.SelectionAnchor, 0, text.Length);
+
+            // ===================== 焦点管理 =====================
+            if (hovered && ctx.MouseClicked && !focused)
             {
                 ctx.FocusedInputId = id;
                 ctx.WantCaptureKeyboard = true;
                 focused = true;
             }
 
-            if (focused && ctx.MouseClicked && !hovered)
+            if (focused && ctx.MouseClicked && !hovered && !fs.IsDragging)
             {
                 ctx.FocusedInputId = 0;
                 ctx.WantCaptureKeyboard = false;
                 focused = false;
+                fs.ClearSelection();
             }
 
             if (focused && ctx.EscapePressed)
@@ -920,72 +982,246 @@ namespace Cryo
                 ctx.FocusedInputId = 0;
                 ctx.WantCaptureKeyboard = false;
                 focused = false;
+                fs.ClearSelection();
             }
 
             bool changed = false;
+
             if (focused)
             {
-                if (ctx.BackspacePressed && text.Length > 0)
+                // ===================== 鼠标交互 =====================
+                if (hovered && ctx.MouseClicked)
                 {
-                    text = text.Substring(0, text.Length - 1);
-                    changed = true;
+                    float localX = ctx.MousePosition.x - rect.x - padding + fs.ScrollOffset;
+                    int clickIdx = ctx.TextRenderer.GetCharIndexAtX(text, localX, Style.FontSize);
+
+                    if (ctx.DoubleClicked)
+                    {
+                        // 双击选词
+                        fs.SelectionAnchor = FindWordStart(text, clickIdx);
+                        fs.CursorIndex = FindWordEnd(text, clickIdx);
+                        fs.IsDragging = false;
+                    }
+                    else if (ctx.ShiftHeld)
+                    {
+                        // Shift+点击 扩展选区
+                        fs.BeginSelection();
+                        fs.CursorIndex = clickIdx;
+                    }
+                    else
+                    {
+                        // 普通点击 定位光标，准备拖拽
+                        fs.CursorIndex = clickIdx;
+                        fs.SelectionAnchor = clickIdx;
+                        fs.IsDragging = true;
+                    }
                 }
 
-                if (ctx.HasKeyboardInput)
+                // 鼠标拖拽选择
+                if (fs.IsDragging && ctx.MouseDown && !ctx.MouseClicked)
+                {
+                    float localX = ctx.MousePosition.x - rect.x - padding + fs.ScrollOffset;
+                    fs.CursorIndex = ctx.TextRenderer.GetCharIndexAtX(text, Mathf.Max(0, localX), Style.FontSize);
+                }
+
+                if (ctx.MouseReleased)
+                {
+                    fs.IsDragging = false;
+                    if (!fs.HasSelection) fs.ClearSelection();
+                }
+
+                // ===================== 键盘快捷键 =====================
+                if (ctx.SelectAllRequested)
+                {
+                    fs.SelectionAnchor = 0;
+                    fs.CursorIndex = text.Length;
+                }
+                else if (ctx.CopyRequested && fs.HasSelection)
+                {
+                    GUIUtility.systemCopyBuffer = fs.GetSelectedText(text);
+                }
+                else if (ctx.CutRequested && fs.HasSelection)
+                {
+                    GUIUtility.systemCopyBuffer = fs.GetSelectedText(text);
+                    fs.DeleteSelection(ref text);
+                    changed = true;
+                }
+                else if (ctx.PasteRequested)
+                {
+                    string clip = GUIUtility.systemCopyBuffer;
+                    if (!string.IsNullOrEmpty(clip))
+                    {
+                        clip = clip.Replace("\r", "").Replace("\n", "");
+                        if (fs.HasSelection) fs.DeleteSelection(ref text);
+                        text = text.Insert(fs.CursorIndex, clip);
+                        fs.CursorIndex += clip.Length;
+                        fs.ClearSelection();
+                        changed = true;
+                    }
+                }
+                // ===================== 方向键 =====================
+                else if (ctx.LeftArrowPressed)
+                {
+                    if (ctx.ShiftHeld)
+                    {
+                        fs.BeginSelection();
+                        fs.CursorIndex = ctx.CtrlHeld ? FindWordStart(text, fs.CursorIndex) : Mathf.Max(0, fs.CursorIndex - 1);
+                    }
+                    else if (fs.HasSelection)
+                    {
+                        fs.CursorIndex = fs.SelectionMin;
+                        fs.ClearSelection();
+                    }
+                    else
+                    {
+                        fs.CursorIndex = ctx.CtrlHeld ? FindWordStart(text, fs.CursorIndex) : Mathf.Max(0, fs.CursorIndex - 1);
+                        fs.ClearSelection();
+                    }
+                }
+                else if (ctx.RightArrowPressed)
+                {
+                    if (ctx.ShiftHeld)
+                    {
+                        fs.BeginSelection();
+                        fs.CursorIndex = ctx.CtrlHeld ? FindWordEnd(text, fs.CursorIndex) : Mathf.Min(text.Length, fs.CursorIndex + 1);
+                    }
+                    else if (fs.HasSelection)
+                    {
+                        fs.CursorIndex = fs.SelectionMax;
+                        fs.ClearSelection();
+                    }
+                    else
+                    {
+                        fs.CursorIndex = ctx.CtrlHeld ? FindWordEnd(text, fs.CursorIndex) : Mathf.Min(text.Length, fs.CursorIndex + 1);
+                        fs.ClearSelection();
+                    }
+                }
+                else if (ctx.HomePressed)
+                {
+                    if (ctx.ShiftHeld) fs.BeginSelection();
+                    else fs.ClearSelection();
+                    fs.CursorIndex = 0;
+                }
+                else if (ctx.EndPressed)
+                {
+                    if (ctx.ShiftHeld) fs.BeginSelection();
+                    else fs.ClearSelection();
+                    fs.CursorIndex = text.Length;
+                }
+                // ===================== 删除 =====================
+                else if (ctx.BackspacePressed)
+                {
+                    if (fs.HasSelection)
+                    {
+                        fs.DeleteSelection(ref text);
+                        changed = true;
+                    }
+                    else if (fs.CursorIndex > 0)
+                    {
+                        int start = ctx.CtrlHeld ? FindWordStart(text, fs.CursorIndex) : fs.CursorIndex - 1;
+                        text = text.Remove(start, fs.CursorIndex - start);
+                        fs.CursorIndex = start;
+                        changed = true;
+                    }
+                }
+                else if (ctx.DeletePressed)
+                {
+                    if (fs.HasSelection)
+                    {
+                        fs.DeleteSelection(ref text);
+                        changed = true;
+                    }
+                    else if (fs.CursorIndex < text.Length)
+                    {
+                        int end = ctx.CtrlHeld ? FindWordEnd(text, fs.CursorIndex) : fs.CursorIndex + 1;
+                        text = text.Remove(fs.CursorIndex, end - fs.CursorIndex);
+                        changed = true;
+                    }
+                }
+                // ===================== 字符输入 =====================
+                else if (ctx.HasKeyboardInput)
                 {
                     foreach (char c in ctx.InputText)
                     {
-                        if (c == '\b' || c == '\n' || c == '\r') continue;
-                        if (c >= 32)
-                        {
-                            text += c;
-                            changed = true;
-                        }
+                        if (c < 32 || c == '\b' || c == '\n' || c == '\r') continue;
+                        if (fs.HasSelection) fs.DeleteSelection(ref text);
+                        text = text.Insert(fs.CursorIndex, c.ToString());
+                        fs.CursorIndex++;
+                        fs.ClearSelection();
+                        changed = true;
                     }
                 }
+
+                // 确保光标合法
+                fs.CursorIndex = Mathf.Clamp(fs.CursorIndex, 0, text.Length);
+
+                // ===================== 自动滚动保持光标可见 =====================
+                float cursorX = ctx.TextRenderer.CalcTextWidth(text, 0, fs.CursorIndex, Style.FontSize);
+                if (cursorX - fs.ScrollOffset > textAreaWidth)
+                    fs.ScrollOffset = cursorX - textAreaWidth;
+                if (cursorX < fs.ScrollOffset)
+                    fs.ScrollOffset = cursorX;
+                fs.ScrollOffset = Mathf.Max(0, fs.ScrollOffset);
             }
 
+            // ===================== 渲染 =====================
             Color32 borderColor = focused ? Style.InputBorderFocused : (hovered ? Style.CheckboxHovered : Style.InputBorder);
             ctx.DrawListForeground.AddRectFilled(rect, Style.InputBackground, borderColor, 1f);
 
-            string displayText = text ?? "";
-            Vector2 textSize = ctx.TextRenderer.CalcTextSize(displayText, Style.FontSize);
+            float textStartX = rect.x + padding;
+            float textY = rect.y + (height - Style.FontSize) * 0.5f;
+            Rect textClipRect = new Rect(textStartX, rect.y, textAreaWidth, height);
 
-            float maxTextWidth = width - 16;
-            string visibleText = displayText;
-            if (textSize.x > maxTextWidth)
+            // --- 选区高亮 ---
+            if (focused && fs.HasSelection)
             {
-                while (ctx.TextRenderer.CalcTextSize(visibleText, Style.FontSize).x > maxTextWidth && visibleText.Length > 0)
+                float selMinX = ctx.TextRenderer.CalcTextWidth(text, 0, fs.SelectionMin, Style.FontSize) - fs.ScrollOffset;
+                float selMaxX = ctx.TextRenderer.CalcTextWidth(text, 0, fs.SelectionMax, Style.FontSize) - fs.ScrollOffset;
+                selMinX = Mathf.Max(0, selMinX);
+                selMaxX = Mathf.Min(textAreaWidth, selMaxX);
+
+                if (selMaxX > selMinX)
                 {
-                    visibleText = visibleText.Substring(1);
+                    Rect selRect = new Rect(textStartX + selMinX, rect.y + 3, selMaxX - selMinX, height - 6);
+                    ctx.DrawListForeground.PushClipRect(textClipRect);
+                    ctx.DrawListForeground.AddRect(selRect, Style.InputSelection);
+                    ctx.DrawListForeground.PopClipRect();
                 }
             }
 
-            Vector2 textPos = new Vector2(rect.x + 8, rect.y + (height - Style.FontSize) * 0.5f);
-            ctx.TextRenderer.AddText(visibleText, textPos, Style.Text, Style.FontSize);
-
-            if (focused)
+            // --- 文字 ---
+            bool showPlaceholder = !focused && string.IsNullOrEmpty(text) && !string.IsNullOrEmpty(placeholder);
+            ctx.TextRenderer.PushClipRect(textClipRect);
+            if (showPlaceholder)
             {
-                float blinkTime = Time.time * 2f;
-                if ((int)blinkTime % 2 == 0)
+                ctx.TextRenderer.AddText(placeholder, new Vector2(textStartX, textY), Style.TextDim, Style.FontSize);
+            }
+            else if (!string.IsNullOrEmpty(text))
+            {
+                ctx.TextRenderer.AddText(text, new Vector2(textStartX - fs.ScrollOffset, textY), Style.Text, Style.FontSize);
+            }
+            ctx.TextRenderer.PopClipRect();
+
+            // --- 光标 ---
+            if (focused && (int)(Time.time * 2f) % 2 == 0)
+            {
+                float cursorXPos = ctx.TextRenderer.CalcTextWidth(text, 0, fs.CursorIndex, Style.FontSize) - fs.ScrollOffset;
+                if (cursorXPos >= 0 && cursorXPos <= textAreaWidth)
                 {
-                    Vector2 cursorTextSize = ctx.TextRenderer.CalcTextSize(visibleText, Style.FontSize);
-                    float cursorX = textPos.x + cursorTextSize.x + 1;
-                    Rect cursorRect = new Rect(cursorX, rect.y + 4, 2, height - 8);
+                    Rect cursorRect = new Rect(textStartX + cursorXPos, rect.y + 4, 2, height - 8);
                     ctx.DrawListForeground.AddRect(cursorRect, Style.InputCursor);
                 }
             }
 
-            // ★ 计算总宽度（包含标签）
+            // --- 标签 ---
             float totalWidth = width;
             if (!string.IsNullOrEmpty(label))
             {
                 Vector2 labelSize = ctx.TextRenderer.CalcTextSize(label, Style.FontSize);
                 ctx.TextRenderer.AddText(label, new Vector2(rect.xMax + 10, rect.y + (height - Style.FontSize) * 0.5f), Style.Text, Style.FontSize);
-                totalWidth = width + 10 + labelSize.x;  // ★ 包含标签宽度
+                totalWidth = width + 10 + labelSize.x;
             }
 
-            // ★ 使用总宽度更新 LastItemEndX
             ctx.LastItemY = ctx.CursorPosition.y;
             ctx.LastItemEndX = ctx.CursorPosition.x + totalWidth;
             ctx.CurrentLineHeight = Mathf.Max(ctx.CurrentLineHeight, height);
@@ -994,95 +1230,30 @@ namespace Cryo
             return changed;
         }
 
-        /// <summary>
-        /// 带占位符的输入框
-        /// </summary>
-        public static bool InputText(string label, ref string text, string placeholder, float width = 200f)
+        // ===================== 单词边界辅助 =====================
+
+        private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+        private static int FindWordStart(string text, int index)
         {
-            var ctx = CryoContext.Current;
-            int id = ctx.GetId(label);
+            if (index <= 0) return 0;
+            int i = Mathf.Min(index, text.Length) - 1;
+            // 先跳过非单词字符
+            while (i > 0 && !IsWordChar(text[i])) i--;
+            // 再跳过单词字符
+            while (i > 0 && IsWordChar(text[i - 1])) i--;
+            return i;
+        }
 
-            float height = Style.FontSize + 12;
-            Rect rect = new Rect(ctx.CursorPosition, new Vector2(width, height));
-
-            ctx.RegisterInteractiveRect(rect);
-
-            bool hovered = IsItemHovered(rect);
-            bool focused = ctx.FocusedInputId == id;
-
-            if (hovered && ctx.MouseClicked)
-            {
-                ctx.FocusedInputId = id;
-                ctx.WantCaptureKeyboard = true;
-                focused = true;
-            }
-
-            if (focused && ctx.MouseClicked && !hovered)
-            {
-                ctx.FocusedInputId = 0;
-                focused = false;
-            }
-
-            if (focused && ctx.EscapePressed)
-            {
-                ctx.FocusedInputId = 0;
-                focused = false;
-            }
-
-            bool changed = false;
-            if (focused)
-            {
-                if (ctx.BackspacePressed && text.Length > 0)
-                {
-                    text = text.Substring(0, text.Length - 1);
-                    changed = true;
-                }
-
-                if (ctx.HasKeyboardInput)
-                {
-                    foreach (char c in ctx.InputText)
-                    {
-                        if (c == '\b' || c == '\n' || c == '\r') continue;
-                        if (c >= 32)
-                        {
-                            text += c;
-                            changed = true;
-                        }
-                    }
-                }
-            }
-
-            Color32 borderColor = focused ? Style.InputBorderFocused : (hovered ? Style.CheckboxHovered : Style.InputBorder);
-            ctx.DrawListForeground.AddRectFilled(rect, Style.InputBackground, borderColor, 1f);
-
-            string displayText = text ?? "";
-            bool showPlaceholder = string.IsNullOrEmpty(displayText) && !focused;
-
-            Vector2 textPos = new Vector2(rect.x + 8, rect.y + (height - Style.FontSize) * 0.5f);
-
-            if (showPlaceholder)
-            {
-                ctx.TextRenderer.AddText(placeholder, textPos, Style.TextDim, Style.FontSize);
-            }
-            else
-            {
-                ctx.TextRenderer.AddText(displayText, textPos, Style.Text, Style.FontSize);
-            }
-
-            if (focused && (int)(Time.time * 2f) % 2 == 0)
-            {
-                Vector2 cursorTextSize = ctx.TextRenderer.CalcTextSize(displayText, Style.FontSize);
-                Rect cursorRect = new Rect(textPos.x + cursorTextSize.x + 1, rect.y + 4, 2, height - 8);
-                ctx.DrawListForeground.AddRect(cursorRect, Style.InputCursor);
-            }
-
-            if (!string.IsNullOrEmpty(label))
-            {
-                ctx.TextRenderer.AddText(label, new Vector2(rect.xMax + 10, rect.y + (height - Style.FontSize) * 0.5f), Style.Text, Style.FontSize);
-            }
-
-            AdvanceCursor(new Vector2(width, height));
-            return changed;
+        private static int FindWordEnd(string text, int index)
+        {
+            if (index >= text.Length) return text.Length;
+            int i = index;
+            // 先跳过单词字符
+            while (i < text.Length && IsWordChar(text[i])) i++;
+            // 再跳过非单词字符
+            while (i < text.Length && !IsWordChar(text[i])) i++;
+            return i;
         }
 
         /// <summary>
@@ -1092,15 +1263,7 @@ namespace Cryo
         {
             string text = value.ToString();
             bool changed = InputText(label, ref text, width);
-
-            if (changed)
-            {
-                if (int.TryParse(text, out int newValue))
-                {
-                    value = newValue;
-                }
-            }
-
+            if (changed && int.TryParse(text, out int v)) value = v;
             return changed;
         }
 
@@ -1111,18 +1274,9 @@ namespace Cryo
         {
             string text = value.ToString("F2");
             bool changed = InputText(label, ref text, width);
-
-            if (changed)
-            {
-                if (float.TryParse(text, out float newValue))
-                {
-                    value = newValue;
-                }
-            }
-
+            if (changed && float.TryParse(text, out float v)) value = v;
             return changed;
         }
-
         #endregion
 
         #region Basic Controls
