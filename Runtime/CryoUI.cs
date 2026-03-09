@@ -12,7 +12,7 @@ namespace Cryo
         private static Rect _activeDropdownRect;
         private static Rect _activeDropdownTriggerRect;
         private static float _dropdownScrollOffset = 0f;  // ★ 添加：下拉菜单滚动偏移
-
+        private static int _dropdownCloseFrame = -1;
         private static int _activeMenuId = 0;
         private static float _activeMenuX = 0;
         private static float _activeMenuY = 0;
@@ -474,6 +474,7 @@ namespace Cryo
                     {
                         selectedIndex = i;
                         _activeDropdownId = 0;
+                        _dropdownCloseFrame = Time.frameCount;
                         changed = true;
                     }
                 }
@@ -1419,6 +1420,12 @@ namespace Cryo
             // ★ 如果下拉菜单打开且鼠标在下拉菜单覆盖区域上，阻止底层组件响应
             if (_activeDropdownId != 0 &&
                 (_activeDropdownRect.width > 0 && _activeDropdownRect.Contains(ctx.MousePosition)))
+                return false;
+
+            // ★ 如果本帧刚通过选项点击关闭了下拉菜单，继续阻止该区域的交互
+            // 防止下方的组件在同一帧内响应同一次点击
+            if (_dropdownCloseFrame == Time.frameCount &&
+                _activeDropdownRect.width > 0 && _activeDropdownRect.Contains(ctx.MousePosition))
                 return false;
 
             // ★ 如果菜单打开且鼠标在菜单覆盖区域上，阻止底层组件响应
